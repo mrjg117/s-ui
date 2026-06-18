@@ -1,0 +1,82 @@
+name: 🔄 Sync Upstream
+
+on:
+  schedule:
+    # 每 6 小时检查一次（可改：0 */12 * * * = 每12h）
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # 允许手动点 "Run workflow"
+
+permissions:
+  contents: write
+
+env:
+  # 上游地址（公开只读，不需要 token）
+  UPSTREAM_REPO: alireza0/s-ui
+  UPSTREAM_OWNER: alireza0
+  UPSTREAM_BRANCH: main
+  # 你 fork 的目标分支（一般就是 main，别改）
+  TARGET_BRANCH: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 📡 Add / refresh upstream remote
+        run: |
+          git remote -v
+          git remote add upstream https://github.com/${{ env.UPSTREAM_OWNER }}/${{ env.UPSTREAM_REPO }}.git 2>/dev/null \
+            || git remote set-url upstream https://github.com/${{ env.UPSTREAM_OWNER }}/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream --tags --force
+
+      - name: 🔀 Switch to target branch & merge (fast-forward preferred)
+        id: merge
+        run: |
+          git checkout ${{ env.TARGET_BRANCH }}
+          git branch --set-upstream-to=origin/${{ env.TARGET_BRANCH }} ${{ env.TARGET_BRANCH }} 2>/dev/null || true
+
+          # 先看 diff，决定要不要动
+          LOCAL=$(git rev-parse ${{ env.TARGET_BRANCH }})
+          REMOTE=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "✅ Already in sync — nothing to push."
+            echo "changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "🔄 Syncing: $LOCAL → $REMOTE"
+
+          # 1) 先试 --ff-only（干净无冲突）
+          if git merge-base --is-ancestor "$LOCAL" "$REMOTE"; then
+            git reset --hard upstream/${{ env.UPSTREAM_BRANCH }}
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            # 2) 有分叉：做常规 merge（可能冲突，冲突就让它失败，你去修）
+            git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📤 Push to your fork
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          git push origin ${{ env.TARGET_BRANCH }} --follow-tags
+
+      - name: 📋 Summary
+        run: |
+          echo "## Sync Result" >> $GITHUB_STEP_SUMMARY
+          echo "- Upstream: \`${{ env.UPSTREAM_OWNER }}/${{ env.UPSTREAM_REPO }}:${{ env.UPSTREAM_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Fork: \`${{ github.repository }}:${{ env.TARGET_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Changed: \`${{ steps.merge.outputs.changed }}\`" >> $GITHUB_STEP_SUMMARY
