@@ -57,17 +57,9 @@ jobs:
 
           echo "🔄 Syncing: $LOCAL → $REMOTE"
 
-          # 优先快进
-          if git merge-base --is-ancestor "$LOCAL" "$REMOTE"; then
-            git reset --hard "upstream/$UP_BRANCH"
-          elif git merge-base "$LOCAL" "$REMOTE" >/dev/null 2>&1; then
-            # 有共同祖先：普通 merge
-            git merge "upstream/$UP_BRANCH" --no-edit
-          else
-            # 历史完全不相关：允许合并不相关历史
-            git merge "upstream/$UP_BRANCH" --no-edit --allow-unrelated-histories
-          fi
+          # 直接强制对齐上游（镜像模式，抛弃本地所有修改）
+          git reset --hard "upstream/$UP_BRANCH"
 
-          git push origin "$TGT_BRANCH" --follow-tags
+          git push origin "$TGT_BRANCH" --force --follow-tags
 
           echo "✅ Pushed updated main to your fork"
