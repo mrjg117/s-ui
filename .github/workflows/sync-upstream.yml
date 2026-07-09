@@ -60,9 +60,12 @@ jobs:
           # 优先快进
           if git merge-base --is-ancestor "$LOCAL" "$REMOTE"; then
             git reset --hard "upstream/$UP_BRANCH"
-          else
-            # 非快进就普通 merge（冲突会红，你再修）
+          elif git merge-base "$LOCAL" "$REMOTE" >/dev/null 2>&1; then
+            # 有共同祖先：普通 merge
             git merge "upstream/$UP_BRANCH" --no-edit
+          else
+            # 历史完全不相关：允许合并不相关历史
+            git merge "upstream/$UP_BRANCH" --no-edit --allow-unrelated-histories
           fi
 
           git push origin "$TGT_BRANCH" --follow-tags
